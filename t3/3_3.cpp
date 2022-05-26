@@ -35,7 +35,7 @@ int main(){
     }
     // std::cout<<A;
     // std::cout<<b;
-    // x = (ATA)-1ATb)
+    // // x = (ATA)-1ATb)
     x = (A.transpose()*A).inverse()*A.transpose()*b;
     std::cout<<"The solution of normal equation is: m = " << x(0) << ", n = " << x(1) << std::endl;
 

@@ -1,18 +1,59 @@
-Task 3-1
-The output is :
-transformation matrix from Camera Right to Camera Left is: 
-   0.999903   0.0133495 -0.00400141    0.102625
- -0.0133546     0.99991 -0.00125433  0.00251731
-  0.0039843  0.00130764    0.999991 0.000576889
-          0           0           0           1
+## Task 3-1
 
+Convert JPL to Hamilton: (x,y,z,w) -> (w,-x,-y,-z)
+
+#### The output is :
+
+```c++
+transformation matrix from Camera Right to Camera Left is: 
 Task 3-3
 The output is :
+    0.999903   -0.0139386  0.000306394     0.102647
+   0.0139382     0.999902   0.00122039   -0.0013357
+-0.000323375    -0.001216     0.999999  0.000502028
+           0            0            0            1
+```
+
+
+
+# Task 3-3
+
+#### The output is :
+
+```c++
 The solution of normal equation is: m = 4, n = 1.49999
 The solution of SVD decomposition is: m = 4, n = 1.49999
 The solution of QR decomposition is: m = 4, n = 1.4999
+```
 
 reference: https://www.codeleading.com/article/68632016892/
 
 
 
+
+
+
+# Task 3-4
+
+
+
+The condition number is:
+$$
+k(A) = ||A^{-1}||||A||
+$$
+Here we use L2 norm, In L2 norm, comdition number is max singular value/ min singular value.
+一个低条件数的问题称为良态的，而高条件数的问题称为病态（或者说非良态）的.
+
+The output is:
+
+```
+The solution of normal equation is: m = 4.58963, n = -0.811457
+The solution of SVD decomposition is: m = 4.58963, n = -0.811457
+The solution of QR decomposition is: m = 4.58963, n = -0.811457
+Single Values of Data 1: 58.5265
+4.98196
+Single Values of Data 2: 41.0307
+1.00646
+Condition number of Data 1: 11.7477
+Condition number of Data 2: 40.7673
+```
