@@ -6,6 +6,8 @@ Convert JPL to Hamilton: (x,y,z,w) -> (w,-x,-y,-z)
 
 ```c++
 transformation matrix from Camera Right to Camera Left is: 
+Task 3-3
+The output is :
     0.999903   -0.0139386  0.000306394     0.102647
    0.0139382     0.999902   0.00122039   -0.0013357
 -0.000323375    -0.001216     0.999999  0.000502028
@@ -30,11 +32,10 @@ reference: https://www.codeleading.com/article/68632016892/
 
 
 
+
 # Task 3-4
 
-```
 
-```
 
 The condition number is:
 $$
@@ -55,6 +56,4 @@ Single Values of Data 2: 41.0307
 1.00646
 Condition number of Data 1: 11.7477
 Condition number of Data 2: 40.7673
-
 ```
-
