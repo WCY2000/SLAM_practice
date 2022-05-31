@@ -22,7 +22,7 @@ int main()
     cv::cvtColor(src, src, CV_RGB2GRAY);
     cv::Mat dst = 255 - src;
 
-    cv::imwrite("/home/chenyu/Desktop/SLAM_practice/t5/5_1_output.jpg", dst);
+    cv::imwrite("/home/chenyu/Desktop/SLAM_practice/t5/5_2_output.jpg", dst);
 
 
     return 0;
