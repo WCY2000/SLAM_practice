@@ -26,8 +26,7 @@ int main(int argc, char **argv)
 	cv::Mat img_1 = cv::imread("/home/chenyu/Desktop/SLAM_practice/t5/undistort1.png", cv::IMREAD_GRAYSCALE);
 	cv::Mat img_2 = cv::imread("/home/chenyu/Desktop/SLAM_practice/t5/undistort2.png", cv::IMREAD_GRAYSCALE);
     const cv::Mat K = ( cv::Mat_<double> (3, 3) << 458.654, 0.0,367.215, 0.0, 457.296, 248.375, 0.0, 0.0, 1.0 );
-    const cv::Mat D = ( cv::Mat_<double> (5, 1) << -0.28340811, 0.07395907, 0.00019359, 1.76187114e-05 );
-
+ 
 	std::vector<cv::KeyPoint> keypoints_1, keypoints_2;
 	cv::Mat descriptors_1, descriptors_2;
 	cv::Ptr<cv::FeatureDetector> detector = cv::ORB::create();
@@ -74,25 +73,21 @@ int main(int argc, char **argv)
 	}
 
 	std::vector<uchar> RansacStatus;
-	cv::Mat Fundamental = cv::findFundamentalMat(p1, p2, RansacStatus, cv::FM_RANSAC,1,0.99);
+	cv::Mat Fundamental = cv::findFundamentalMat(p1, p2, RansacStatus, cv::FM_RANSAC,0.05,0.99);
+   
 
-	std::vector <cv::Point2f> rancsac_result1, rancsac_result2;
-	std::vector <cv::DMatch> rancsac_result_matches;
-	int index = 0;
+    std::vector<cv::Point2f> rancsac_result1, rancsac_result2;
 	for (size_t i = 0; i < good_matches.size(); i++)
 	{
 		if (RansacStatus[i] != 0)
 		{
 			rancsac_result1.push_back(p1[i]);
 			rancsac_result2.push_back(p2[i]);
-			good_matches[i].queryIdx = index;
-			good_matches[i].trainIdx = index;
-			rancsac_result_matches.push_back(good_matches[i]);
-			index++;
 		}
 	}
+    std::cout << "num of corres" << rancsac_result1.size() << std::endl;
 
-    Eigen::Matrix<double, 8,9> A ;
+    Eigen::Matrix<double, 15,9> A ;
     Eigen::Matrix<double, 9,1> e ;
     Eigen::Matrix<double, 3,3> E ;
     Eigen::Matrix<double, 3,3> sigma  = Eigen::MatrixXd::Zero(3,3);
@@ -100,7 +95,6 @@ int main(int argc, char **argv)
     Eigen::Matrix<double, 3,3> t2_screw ;
     Eigen::Matrix<double, 3,3> R1 ;
     Eigen::Matrix<double, 3,3> R2 ;
-    Eigen::Matrix<double, 9, 9> AtA = Eigen::MatrixXd::Zero(9,9);
     Eigen::Matrix3d R_z = Eigen::MatrixXd::Zero(3, 3);
     Eigen::Matrix3d R_z_neg = Eigen::MatrixXd::Zero(3, 3);
 
@@ -125,9 +119,9 @@ int main(int argc, char **argv)
 		p11.push_back(rancsac_result1[0]);
 		p21.push_back(rancsac_result2[0]);
 	
-    for (int j=0; j< 8; j++){
+    for (int j=0; j< 15; j++){
         while(random_number.find(i) != random_number.end()){
-            i = rand() % rancsac_result_matches.size();
+            i = rand() % rancsac_result1.size();
         }
         p11.push_back(rancsac_result1[i]);
 		p21.push_back(rancsac_result2[i]);
@@ -151,12 +145,16 @@ int main(int argc, char **argv)
         A(j, 7) = y1 ;
         A(j, 8) = 1;
     }
+
     // std::cout << A << std::endl;
     // auto U = A.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).matrixU();
-    auto V = A.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).matrixV();
-    // std::cout << V << std::endl;
+    // auto V = A.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).matrixV();
+    // // std::cout << V << std::endl;
+    Eigen::JacobiSVD<Eigen::Matrix<double, 15, 9>> svd(A, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    Eigen::Matrix<double, 9, 9> V = svd.matrixV();
     // // std::cout << A.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).singularValues() << std::endl;
     e = V.col(8);
+
 
     E(0, 0) = e(0, 0);
     E(0, 1) = e(1, 0);
@@ -177,13 +175,27 @@ int main(int argc, char **argv)
     Eigen::Matrix3d E_cv;
     cv::cv2eigen(essentialMat, E_cv);
 
-    auto E_U = E_cv.bdcSvd(Eigen::ComputeFullU | Eigen::ComputeFullV).matrixU();
-    auto E_V = E_cv.bdcSvd(Eigen::ComputeFullU | Eigen::ComputeFullV).matrixV();
+    Eigen::Vector3d p_2;
+    Eigen::Vector3d p_1;
+    for (int i = 0; i < 15; i++){
+    p_2(0) = (rancsac_result2[i].x - cx) / fx;
+    p_2(1) = (rancsac_result2[i].y - cy) / fy;
+    p_2(2) = 1;
+
+    p_1(0) = (rancsac_result1[i].x - cx) / fx;
+    p_1(1) = (rancsac_result1[i].y - cy) / fy;
+    p_1(2) = 1;
+    std::cout << "i = " << i << std::endl;
+    std::cout << "Me " << p_2.transpose() * E * p_1 << std::endl;
+    std::cout << "OpenCV " << p_2.transpose() * E_cv * p_1 << std::endl;
+}
+    auto E_U = E.bdcSvd(Eigen::ComputeFullU | Eigen::ComputeFullV).matrixU();
+    auto E_V = E.bdcSvd(Eigen::ComputeFullU | Eigen::ComputeFullV).matrixV();
     auto E_singular = E_cv.bdcSvd(Eigen::ComputeFullU | Eigen::ComputeFullV).singularValues();
 
     sigma(0, 0) = E_singular(0);
     sigma(1, 1) = E_singular(1);
-    sigma(2, 2) = E_singular(2);
+    sigma(2, 2) = 0;
 
     t1_screw = E_U * R_z *sigma * E_U.transpose();
     t2_screw = E_U * R_z_neg *sigma * E_U.transpose();
@@ -194,7 +206,7 @@ int main(int argc, char **argv)
     std::cout << "R1 \n " << R1 << std::endl;
     std::cout << "R2 \n " << R2 << std::endl;
 
-    // verify t and R using keypoint 7
+    // // verify t and R using keypoint 7
     Eigen::Vector4d t1;
     Eigen::Vector4d t2;
 
@@ -211,28 +223,32 @@ int main(int argc, char **argv)
     Eigen::Vector4d p_cam2;
     Eigen::Vector4d p_cam1;
 
-    p_cam2(0) = (rancsac_result2[7].x - cx) / fx;
-    p_cam2(1) = (rancsac_result2[7].y - cy) / fy;
+    p_cam2(0) = (rancsac_result2[6].x - cx) / fx;
+    p_cam2(1) = (rancsac_result2[6].y - cy) / fy;
     p_cam2(2) = 1;
     p_cam2(3) = 1;
-    p_cam1(0) = (rancsac_result1[7].x - cx) / fx;
-    p_cam1(1) = (rancsac_result1[7].y - cy) / fy;
+    p_cam1(0) = (rancsac_result1[6].x - cx) / fx;
+    p_cam1(1) = (rancsac_result1[6].y - cy) / fy;
     p_cam1(2) = 1;
     p_cam1(3) = 1;
 
-    if (varify_R_t(p_cam1, p_cam2, R1, t1)){
-        std::cout <<"The correct R and t are: " <<std::endl <<R1 << std::endl << std::endl << t1;
-        return 0;
-    }
-    if (varify_R_t(p_cam1, p_cam2, R1, t2)){
-        std::cout <<"The correct R and t are: " <<std::endl <<R1 << std::endl << std::endl << t2;
-    }
-    if (varify_R_t(p_cam1, p_cam2, R2, t1)){
-        std::cout <<"The correct R and t are: " <<std::endl <<R2 << std::endl << std::endl << t1;
-    }
-    if (varify_R_t(p_cam1, p_cam2, R2, t2)){
-        std::cout <<"The correct R and t are: " <<std::endl <<R2<< std::endl << std::endl << t2;
-    }
+    std::cout << "t1 \n"
+              << t1;
+     std::cout << "\nt2 \n"
+              << t2;         
+    // if (varify_R_t(p_cam1, p_cam2, R1, t1)){
+    //     std::cout <<"The correct R and t are: " <<std::endl <<R1 << std::endl << std::endl << t1;
+
+    // }
+    // if (varify_R_t(p_cam1, p_cam2, R1, t2)){
+    //     std::cout <<"The correct R and t are: " <<std::endl <<R1 << std::endl << std::endl << t2;
+    // }
+    // if (varify_R_t(p_cam1, p_cam2, R2, t1)){
+    //     std::cout <<"The correct R and t are: " <<std::endl <<R2 << std::endl << std::endl << t1;
+    // }
+    // if (varify_R_t(p_cam1, p_cam2, R2, t2)){
+    //     std::cout <<"The correct R and t are: " <<std::endl <<R2<< std::endl << std::endl << t2;
+    // }
 
     return 0;
 }
