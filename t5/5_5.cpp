@@ -13,6 +13,49 @@
 #include <random>
 #include <set>
 
+Eigen::Matrix3d skew_matrix(Eigen::Vector3d p1){
+    Eigen::Matrix3d p1_skew = Eigen::MatrixXd::Zero(3, 3);
+    p1_skew(0, 1) = -p1(2);
+    p1_skew(0, 2) = p1(1);
+    p1_skew(1, 0) = p1(2);
+    p1_skew(1, 2) = -p1(0);
+    p1_skew(2, 0) = -p1(1);
+    p1_skew(2, 1) = p1(0);
+    return p1_skew;
+}
+
+Eigen::Vector2d triangulation(Eigen::Vector2d p1, Eigen::Vector2d p2, Eigen::Matrix3d R,  Eigen::Vector3d t){
+    Eigen::Vector2d S;
+    Eigen::Vector3d pt1;
+    Eigen::Vector3d pt2;
+
+    pt1(0) = p1(0);
+    pt1(1) = p1(1);
+    pt1(2) = 1;
+    pt2(0) = p2(0);
+    pt2(1) = p2(1);
+    pt2(2) = 1;
+
+    double s1, s2;
+    auto m = -skew_matrix(pt2) * t;
+    auto n = (skew_matrix(pt2) * R * pt1);
+    if (n(0) == 0)
+        s1 = 0;
+    else {s1 = m(0) / n(0);}
+    
+    if (pt2(0) != 0)
+        s2 = (s1 * R * pt1 + t)(0) / p2(0);
+    else{
+        if(pt2(1) != 0){
+            s2 = (s1 * R * pt1 + t)(1) / pt2(1);
+        }
+    }
+    std::cout << "\n\n Depth in Camera 1 is s1: " << s1 << " \n Depth in Camera 2 is s2: " << s2<<"\n";
+    S(0) = s1;
+    S(1) = s2;
+    return S;
+}
+
 bool varify_R_t(Eigen::Vector2d p1, Eigen::Vector2d p2, Eigen::Matrix<double, 3,3> R,  Eigen::Vector3d t, cv::Mat K){
     cv::Mat T1 = (cv::Mat_<double>(3, 4) << 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0);
     cv::Mat T2 = (cv::Mat_<double>(3, 4) << R(0,0), R(0,1), R(0,2), t(0),  R(1,0), R(1,1), R(1,2), t(1), R(2,0), R(2,1), R(2,2), t(2));
@@ -25,11 +68,13 @@ bool varify_R_t(Eigen::Vector2d p1, Eigen::Vector2d p2, Eigen::Matrix<double, 3,
     Eigen::MatrixXd A;
     cv::cv2eigen(x, A);
     A /= A(3);
-
-    if (A(2) >0){
+    std::cout << "\nThe depth in Camera 1: " << A(2) << std::endl;
+    std::cout << "The depth in Camera 2: " << (R * A.block<3, 1>(0, 0) + t)(2) << std::endl;
+    if (A(2) > 0)
+    {
+        
         if ((R * A.block<3, 1>(0, 0) + t)(2) > 0)
             return 1;
-        
     }
     return 0;
 }
@@ -52,11 +97,8 @@ int main(int argc, char **argv)
 	descriptor->compute(img_1, keypoints_1, descriptors_1);
 	descriptor->compute(img_2, keypoints_2, descriptors_2);
 
-
-
 	std::vector<cv::DMatch> matches;
 	matcher->match(descriptors_1, descriptors_2, matches);
-
 
     double max_dist = matches[0].distance;
 	for (int m = 0; m < matches.size(); m++){
@@ -88,7 +130,6 @@ int main(int argc, char **argv)
 	std::vector<uchar> RansacStatus;
 	cv::Mat Fundamental = cv::findFundamentalMat(p1, p2, RansacStatus, cv::FM_RANSAC,0.05,0.99);
    
-
     std::vector<cv::Point2f> rancsac_result1, rancsac_result2;
 	for (size_t i = 0; i < good_matches.size(); i++)
 	{
@@ -158,7 +199,6 @@ int main(int argc, char **argv)
         A(j, 7) = y1 ;
         A(j, 8) = 1;
     }
-
     // std::cout << A << std::endl;
     // auto U = A.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).matrixU();
     // auto V = A.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).matrixV();
@@ -167,7 +207,6 @@ int main(int argc, char **argv)
     Eigen::Matrix<double, 9, 9> V = svd.matrixV();
     // // std::cout << A.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).singularValues() << std::endl;
     e = V.col(8);
-
 
     E(0, 0) = e(0, 0);
     E(0, 1) = e(1, 0);
@@ -179,9 +218,7 @@ int main(int argc, char **argv)
     E(2, 1) = e(7, 0);
     E(2, 2) = e(8, 0);
 
-
     std::cout <<"Essential Matrix \n"<< E;
-    
     
     cv::Mat essentialMat = cv::findEssentialMat(p11, p21, K,cv::LMEDS);
     std::cout <<"\n Essential matrix from Opencv \n"<< essentialMat;
@@ -228,11 +265,6 @@ int main(int argc, char **argv)
 
     // R1 = svd_R1.matrixU() *diag_R1*svd_R1.matrixV().transpose();
     // R2 = svd_R2.matrixU() *diag_R2*svd_R2.matrixV().transpose();
-
-   
-
-
-
     // // verify t and R using keypoint 7
     Eigen::Vector3d t1;
     Eigen::Vector3d t2;
@@ -258,26 +290,30 @@ int main(int argc, char **argv)
     p_cam1(0) = (rancsac_result1[2].x - cx) / fx;
     p_cam1(1) = (rancsac_result1[2].y - cy) / fy;
 
+    Eigen::Matrix3d R;
+    Eigen::Vector3d t;
+
     if (varify_R_t(p_cam1, p_cam2, R1, t1, K)){
-        std::cout << "\nR = \n"
-                  << R1 << "\n \n t = \n"
-                  << t1;
+        R = R1;
+        t = t1;
+        
     };
     if (varify_R_t(p_cam1, p_cam2, R1, t2, K)){
-        std::cout << "\nR = \n"
-                  << R1 << "\n \n t = \n"
-                  << t2;
+        R = R1;
+        t = t2;
     };
     if (varify_R_t(p_cam1, p_cam2, R2, t1, K)){
-        std::cout << "\nR = \n"
-                  << R2 << "\n \n t = \n"
-                  << t1;
+        R = R2;
+        t = t1;
     };
     if (varify_R_t(p_cam1, p_cam2, R2, t2, K)){
-        std::cout << "\nR = \n"
-                  << R2 << "\n \n t = \n"
-                  << t2;
+        R = R2;
+        t = t2;
     };
+
+    std::cout << "\nR = \n" << R << "\n \n t = \n" << t <<" \n";
+
+    triangulation(p_cam1, p_cam2, R, t);
 
     return 0;
 }
