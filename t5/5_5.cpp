@@ -13,19 +13,32 @@
 #include <random>
 #include <set>
 
-bool varify_R_t(Eigen::Vector4d p1, Eigen::Vector4d p2, Eigen::Matrix<double, 3,3> R,  Eigen::Vector4d t){
-    Eigen::Matrix4d T = Eigen::MatrixXd::Zero(4, 4);
-    T.block<3, 3>(0, 0) = R;
-    T.block<4, 1>(0, 3) = t;
-    // std::cout << "line 20:" << T * p1 << std::endl;
-    return ( (T * p1)(2) > 0);
+bool varify_R_t(Eigen::Vector2d p1, Eigen::Vector2d p2, Eigen::Matrix<double, 3,3> R,  Eigen::Vector3d t, cv::Mat K){
+    cv::Mat T1 = (cv::Mat_<double>(3, 4) << 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0);
+    cv::Mat T2 = (cv::Mat_<double>(3, 4) << R(0,0), R(0,1), R(0,2), t(0),  R(1,0), R(1,1), R(1,2), t(1), R(2,0), R(2,1), R(2,2), t(2));
+    std::vector<cv::Point2d> pt1, pt2;
+    cv::Mat pts_4d;
+    pt1.push_back(cv::Point2d(p1(0), p1(1)));
+    pt2.push_back(cv::Point2d(p2(0),p2(1)));
+    cv::triangulatePoints(T1, T2,pt1, pt2, pts_4d);
+    cv::Mat x = pts_4d.col(0);
+    Eigen::MatrixXd A;
+    cv::cv2eigen(x, A);
+    A /= A(3);
+
+    if (A(2) >0){
+        if ((R * A.block<3, 1>(0, 0) + t)(2) > 0)
+            return 1;
+        
+    }
+    return 0;
 }
 
 int main(int argc, char **argv)
 {
-	cv::Mat img_1 = cv::imread("/home/chenyu/Desktop/SLAM_practice/t5/undistort1.png", cv::IMREAD_GRAYSCALE);
-	cv::Mat img_2 = cv::imread("/home/chenyu/Desktop/SLAM_practice/t5/undistort2.png", cv::IMREAD_GRAYSCALE);
-    const cv::Mat K = ( cv::Mat_<double> (3, 3) << 458.654, 0.0,367.215, 0.0, 457.296, 248.375, 0.0, 0.0, 1.0 );
+	cv::Mat img_1 = cv::imread("/home/chenyu/Desktop/SLAM_practice/t5/undistort_1.png", cv::IMREAD_GRAYSCALE);
+	cv::Mat img_2 = cv::imread("/home/chenyu/Desktop/SLAM_practice/t5/undistort_2.png", cv::IMREAD_GRAYSCALE);
+    const cv::Mat K = ( cv::Mat_<double> (3, 3) << 356.1094055175781, 0, 362.754261616093, 0.0,418.0326843261719, 250.1802333891737, 0.0, 0.0, 1.0 );
  
 	std::vector<cv::KeyPoint> keypoints_1, keypoints_2;
 	cv::Mat descriptors_1, descriptors_2;
@@ -191,7 +204,7 @@ int main(int argc, char **argv)
 }
     auto E_U = E.bdcSvd(Eigen::ComputeFullU | Eigen::ComputeFullV).matrixU();
     auto E_V = E.bdcSvd(Eigen::ComputeFullU | Eigen::ComputeFullV).matrixV();
-    auto E_singular = E_cv.bdcSvd(Eigen::ComputeFullU | Eigen::ComputeFullV).singularValues();
+    auto E_singular = E.bdcSvd(Eigen::ComputeFullU | Eigen::ComputeFullV).singularValues();
 
     sigma(0, 0) = E_singular(0);
     sigma(1, 1) = E_singular(1);
@@ -201,54 +214,70 @@ int main(int argc, char **argv)
     t2_screw = E_U * R_z_neg *sigma * E_U.transpose();
     R1 = E_U * R_z.transpose() * E_V.transpose();
     R2 = E_U * R_z_neg.transpose() * E_V.transpose();
-    std::cout << "\nt1\n" << std::endl << t1_screw << std::endl;
-    std::cout << "t2"<<std::endl<<t2_screw <<std::endl;
-    std::cout << "R1 \n " << R1 << std::endl;
-    std::cout << "R2 \n " << R2 << std::endl;
+
+    Eigen::JacobiSVD<Eigen::Matrix<double, 3,3>> svd_R1(R1, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    Eigen::JacobiSVD<Eigen::Matrix<double, 3,3>> svd_R2(R2, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    Eigen::Matrix3d diag_R1 = Eigen::MatrixXd::Zero(3, 3);
+    Eigen::Matrix3d diag_R2 = Eigen::MatrixXd::Zero(3, 3);
+    diag_R1(0, 0) = 1;
+    diag_R1(1, 1) = 1;
+    diag_R1(2, 2) = R1.determinant();
+    diag_R2(0, 0) = 1;
+    diag_R2(1, 1) = 1;
+    diag_R2(2, 2) = R2.determinant();
+
+    // R1 = svd_R1.matrixU() *diag_R1*svd_R1.matrixV().transpose();
+    // R2 = svd_R2.matrixU() *diag_R2*svd_R2.matrixV().transpose();
+
+   
+
+
 
     // // verify t and R using keypoint 7
-    Eigen::Vector4d t1;
-    Eigen::Vector4d t2;
+    Eigen::Vector3d t1;
+    Eigen::Vector3d t2;
 
     t1(0) = t1_screw(2, 1);
     t1(1) = t1_screw(0, 2);
     t1(2) = t1_screw(1, 0);
-    t1(3) = 1;
 
     t2(0) = t2_screw(2, 1);
     t2(1) = t2_screw(0, 2);
     t2(2) = t2_screw(1, 0);
-    t2(3) = 1;
+    std::cout << "\nt1\n" << std::endl << t1 << std::endl;
+    std::cout << "t2"<<std::endl<<t2 <<std::endl;
+    std::cout << "R1 \n " << R1 << std::endl;
+    std::cout << "R2 \n " << R2 << std::endl;
     
-    Eigen::Vector4d p_cam2;
-    Eigen::Vector4d p_cam1;
+    Eigen::Vector2d p_cam2;
+    Eigen::Vector2d p_cam1;
 
-    p_cam2(0) = (rancsac_result2[6].x - cx) / fx;
-    p_cam2(1) = (rancsac_result2[6].y - cy) / fy;
-    p_cam2(2) = 1;
-    p_cam2(3) = 1;
-    p_cam1(0) = (rancsac_result1[6].x - cx) / fx;
-    p_cam1(1) = (rancsac_result1[6].y - cy) / fy;
-    p_cam1(2) = 1;
-    p_cam1(3) = 1;
+    p_cam2(0) = (rancsac_result2[2].x - cx) / fx;
+    p_cam2(1) = (rancsac_result2[2].y - cy) / fy;
 
-    std::cout << "t1 \n"
-              << t1;
-     std::cout << "\nt2 \n"
-              << t2;         
-    // if (varify_R_t(p_cam1, p_cam2, R1, t1)){
-    //     std::cout <<"The correct R and t are: " <<std::endl <<R1 << std::endl << std::endl << t1;
+    p_cam1(0) = (rancsac_result1[2].x - cx) / fx;
+    p_cam1(1) = (rancsac_result1[2].y - cy) / fy;
 
-    // }
-    // if (varify_R_t(p_cam1, p_cam2, R1, t2)){
-    //     std::cout <<"The correct R and t are: " <<std::endl <<R1 << std::endl << std::endl << t2;
-    // }
-    // if (varify_R_t(p_cam1, p_cam2, R2, t1)){
-    //     std::cout <<"The correct R and t are: " <<std::endl <<R2 << std::endl << std::endl << t1;
-    // }
-    // if (varify_R_t(p_cam1, p_cam2, R2, t2)){
-    //     std::cout <<"The correct R and t are: " <<std::endl <<R2<< std::endl << std::endl << t2;
-    // }
+    if (varify_R_t(p_cam1, p_cam2, R1, t1, K)){
+        std::cout << "\nR = \n"
+                  << R1 << "\n \n t = \n"
+                  << t1;
+    };
+    if (varify_R_t(p_cam1, p_cam2, R1, t2, K)){
+        std::cout << "\nR = \n"
+                  << R1 << "\n \n t = \n"
+                  << t2;
+    };
+    if (varify_R_t(p_cam1, p_cam2, R2, t1, K)){
+        std::cout << "\nR = \n"
+                  << R2 << "\n \n t = \n"
+                  << t1;
+    };
+    if (varify_R_t(p_cam1, p_cam2, R2, t2, K)){
+        std::cout << "\nR = \n"
+                  << R2 << "\n \n t = \n"
+                  << t2;
+    };
 
     return 0;
 }
