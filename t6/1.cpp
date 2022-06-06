@@ -1,3 +1,5 @@
+#include <ceres/ceres.h>
+#include <ceres/rotation.h>
 #include "ceres/ceres.h"
 #include "glog/logging.h"
 #include <iostream>
@@ -12,8 +14,37 @@
 #include <opencv2/core/eigen.hpp>
 #include <vector>
 #include <random>
-#include <set>
 
+struct ReprojectionError3D
+{
+	ReprojectionError3D(double observed_u, double observed_v)
+		:observed_u(observed_u), observed_v(observed_v)
+		{}
+
+	template <typename T>
+	bool operator()(const T* const camera_R, const T* const camera_T, const T* point, T* residuals) const
+	{
+		T p[3];
+		ceres::QuaternionRotatePoint(camera_R, point, p);
+		p[0] += camera_T[0]; p[1] += camera_T[1]; p[2] += camera_T[2];
+		T xp = p[0] / p[2];
+    	T yp = p[1] / p[2];
+    	residuals[0] = xp - T(observed_u);
+    	residuals[1] = yp - T(observed_v);
+    	return true;
+	}
+
+	static ceres::CostFunction* Create(const double observed_x,
+	                                   const double observed_y) 
+	{
+	  return (new ceres::AutoDiffCostFunction<
+	          ReprojectionError3D, 2, 4, 3, 3>(
+	          	new ReprojectionError3D(observed_x,observed_y)));
+	}
+
+	double observed_u;
+	double observed_v;
+};
 
 Eigen::Matrix3d skew_matrix(Eigen::Vector3d p1){
     Eigen::Matrix3d p1_skew = Eigen::MatrixXd::Zero(3, 3);
@@ -58,9 +89,6 @@ Eigen::Vector3d triangulation(Eigen::Vector2d p1, Eigen::Vector2d p2, Eigen::Mat
     P<< p1(0)*s1, p1(1)*s1, s1;
     return P;
 }
-
-
-
 
 
 int main(){
@@ -139,6 +167,28 @@ int main(){
     std::vector<Eigen::Vector2d> p2d;
 
 
+    // for (int i=0; i< rancsac_result1.size(); i++){
+    //     Eigen::Vector2d p_cam2;
+    //     Eigen::Vector2d p_cam1;
+    //     p_cam1(0) = (rancsac_result1[i].x - cx) / fx;
+    //     p_cam1(1) = (rancsac_result1[i].y - cy) / fy;
+
+    //     p_cam2(0) = (rancsac_result2[i].x - cx) / fx;
+    //     p_cam2(1) = (rancsac_result2[i].y - cy) / fy;
+
+    //     auto P_world = triangulation(p_cam1,p_cam2,R,t);
+    //     p3d.push_back(P_world);
+
+    // } 
+
+    cv::Mat T1 = (cv::Mat_<double>(3, 4) << 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0);
+    cv::Mat T2 = (cv::Mat_<double>(3, 4) << R(0,0), R(0,1), R(0,2), t(0),  R(1,0), R(1,1), R(1,2), t(1), R(2,0), R(2,1), R(2,2), t(2));
+    std::vector<cv::Point2d> pt1, pt2;
+    cv::Mat pts_4d;
+
+    
+
+
     for (int i=0; i< rancsac_result1.size(); i++){
         Eigen::Vector2d p_cam2;
         Eigen::Vector2d p_cam1;
@@ -148,40 +198,82 @@ int main(){
         p_cam2(0) = (rancsac_result2[i].x - cx) / fx;
         p_cam2(1) = (rancsac_result2[i].y - cy) / fy;
 
-        auto P_world = triangulation(p_cam1,p_cam2,R,t);
-        p2d.push_back(Eigen::Vector2d(rancsac_result1[i].x,rancsac_result1[i].y));
-        p3d.push_back(P_world);
+        pt1.push_back(cv::Point2d(p_cam1(0), p_cam1(1)));
+        pt2.push_back(cv::Point2d(p_cam2(0), p_cam2(1)));
 
     } 
 
-std::cout<<"p2d: "<< std::endl;
-for (auto i : p2d){
-    std::cout<< i <<std::endl;
-}
-    
 
-    // Sophus::Vector6d se3;
-    // ceres::Problem problem;
-    // for(int i=0; i<n_points; ++i) {
-    //     ceres::CostFunction *cost_function;
-    //     cost_function = new BAGNCostFunctor(p2d[i], p3d[i]);
-    //     problem.AddResidualBlock(cost_function, NULL, se3.data());
+    cv::triangulatePoints(T1, T2,pt1, pt2, pts_4d);
+
+    Eigen::MatrixXd A;
+    cv::cv2eigen(pts_4d, A);
+    // std::cout<<"p2d: "<< std::endl;
+    // for (auto i : p2d){
+    //     std::cout<< i <<std::endl;
     // }
 
-    // ceres::Solver::Options options;
-    // options.dynamic_sparsity = true;
-    // options.max_num_iterations = 100;
-    // options.sparse_linear_algebra_library_type = ceres::SUITE_SPARSE;
-    // options.minimizer_type = ceres::TRUST_REGION;
-    // options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
-    // options.trust_region_strategy_type = ceres::DOGLEG;
-    // options.minimizer_progress_to_stdout = true;
-    // options.dogleg_type = ceres::SUBSPACE_DOGLEG;
+   
+    ceres::Problem problem;
+    Eigen::Quaterniond q(R);
+    double c_rotation[2][4];
+    double c_translation[2][3];
+    double position_3d [rancsac_result1.size()][3];
 
-    // ceres::Solver::Summary summary;
-    // ceres::Solve(options, &problem, &summary);
-    // std::cout << summary.BriefReport() << "\n";
+    c_translation[1][0] = t(0);
+	c_translation[1][1] = t(1);
+    c_translation[1][2] = t(2);
+	c_rotation[1][0] = q.w();
+	c_rotation[1][1] = q.x();
+	c_rotation[1][2] = q.y();
+	c_rotation[1][3] = q.z();
 
-    // std::cout << "estimated pose: \n" << Sophus::SE3::exp(se3).matrix() << std::endl;
+    c_translation[0][0] = 0;
+	c_translation[0][1] = 0;
+    c_translation[0][2] = 0;
+	c_rotation[0][0] = 1;
+	c_rotation[0][1] = 0;
+	c_rotation[0][2] = 0;
+	c_rotation[0][3] = 0;
+    
+   
+	ceres::LocalParameterization* local_parameterization = new ceres::QuaternionParameterization();
+    problem.AddParameterBlock(c_rotation[0], 4, local_parameterization);
+	problem.AddParameterBlock(c_translation[0], 3);
+    problem.AddParameterBlock(c_rotation[1], 4, local_parameterization);
+	problem.AddParameterBlock(c_translation[1], 3);
+    problem.SetParameterBlockConstant(c_rotation[1]);
+    problem.SetParameterBlockConstant(c_translation[1]);
+
+
+		for (int i = 0; i < 5; i++)
+		{
+
+			ceres::CostFunction* cost_function = ReprojectionError3D::Create(
+												rancsac_result2[i].x,
+												rancsac_result2[i].y);
+            
+            position_3d[i][0] = A.col(i)(0);
+            position_3d[i][1] = A.col(i)(1);
+            position_3d[i][2] = A.col(i)(2);
+
+    		problem.AddResidualBlock(cost_function, NULL, c_rotation[0], c_translation[0], 
+    								position_3d[i]);	 
+		}
+
+	ceres::Solver::Options options;
+	options.linear_solver_type = ceres::DENSE_SCHUR;
+	options.minimizer_progress_to_stdout = true;
+    options.max_num_iterations = 200;
+	options.max_solver_time_in_seconds = 10;
+	ceres::Solver::Summary summary;
+	ceres::Solve(options, &problem, &summary);
+	std::cout << summary.BriefReport() << "\n";
+    
+    Eigen::Matrix3d R_optima ;
+    Eigen::Quaterniond q_optima(c_rotation[0][0],c_rotation[0][1],c_rotation[0][2],c_rotation[0][3]);
+    R_optima = q_optima.toRotationMatrix();
+    std::cout<<"R \n"<<R_optima;
+
 
 }
