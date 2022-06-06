@@ -31,6 +31,7 @@ struct ReprojectionError3D
     	T yp = p[1] / p[2];
     	residuals[0] = xp - T(observed_u);
     	residuals[1] = yp - T(observed_v);
+        std::cout<<"delta u: "<< residuals[0]<<"\n";
     	return true;
 	}
 
@@ -242,42 +243,47 @@ int main(){
 	problem.AddParameterBlock(c_translation[0], 3);
     problem.AddParameterBlock(c_rotation[1], 4, local_parameterization);
 	problem.AddParameterBlock(c_translation[1], 3);
-    problem.SetParameterBlockConstant(c_rotation[1]);
-    problem.SetParameterBlockConstant(c_translation[1]);
+    problem.SetParameterBlockConstant(c_rotation[0]);
+    problem.SetParameterBlockConstant(c_translation[0]);
 
 
-		for (int i = 0; i < 5; i++)
+		for (int i = 0; i < rancsac_result2.size(); i++)
 		{
 
 			ceres::CostFunction* cost_function = ReprojectionError3D::Create(
-												rancsac_result2[i].x,
-												rancsac_result2[i].y);
+												(rancsac_result2[i].x - cx) / fx,
+												(rancsac_result2[i].y - cy) / fy);
             
             position_3d[i][0] = A.col(i)(0);
             position_3d[i][1] = A.col(i)(1);
             position_3d[i][2] = A.col(i)(2);
 
-    		problem.AddResidualBlock(cost_function, NULL, c_rotation[0], c_translation[0], 
-    								position_3d[i]);	 
+    		problem.AddResidualBlock(cost_function, NULL, c_rotation[1], c_translation[1], 
+    								position_3d[i]);
+
 		}
 
 	ceres::Solver::Options options;
 	options.linear_solver_type = ceres::DENSE_SCHUR;
 	options.minimizer_progress_to_stdout = true;
-    options.max_num_iterations = 200;
+    options.max_num_iterations = 50;
 	options.max_solver_time_in_seconds = 10;
 	ceres::Solver::Summary summary;
 	ceres::Solve(options, &problem, &summary);
 	std::cout << summary.BriefReport() << "\n";
     
     Eigen::Matrix3d R_optima ;
-    Eigen::Vector3d t_optima(c_translation[0],c_translation[1],c_translation[2]) ;
-    Eigen::Quaterniond q_optima(c_rotation[0][0],c_rotation[0][1],c_rotation[0][2],c_rotation[0][3]);
+    Eigen::Vector3d t_optima(c_translation[1][0],c_translation[1][1],c_translation[1][2]) ;
+    Eigen::Quaterniond q_optima(c_rotation[1][0],c_rotation[1][1],c_rotation[1][2],c_rotation[1][3]);
+    // Eigen::Vector3d t_optima(c_translation[0][0],c_translation[0][1],c_translation[0][2]) ;
+    // Eigen::Quaterniond q_optima(c_rotation[0][0],c_rotation[0][1],c_rotation[0][2],c_rotation[0][3]);
     R_optima = q_optima.toRotationMatrix();
     
 
     std::cout<<"\n R after Ceres optimization \n"<<R_optima;
     std::cout<<"\n t after Ceres optimization \n"<<t_optima;
+
+    
 
 
 
