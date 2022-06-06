@@ -271,9 +271,14 @@ int main(){
 	std::cout << summary.BriefReport() << "\n";
     
     Eigen::Matrix3d R_optima ;
+    Eigen::Vector3d t_optima(c_translation[0],c_translation[1],c_translation[2]) ;
     Eigen::Quaterniond q_optima(c_rotation[0][0],c_rotation[0][1],c_rotation[0][2],c_rotation[0][3]);
     R_optima = q_optima.toRotationMatrix();
-    std::cout<<"R \n"<<R_optima;
+    
+
+    std::cout<<"\n R after Ceres optimization \n"<<R_optima;
+    std::cout<<"\n t after Ceres optimization \n"<<t_optima;
+
 
 
 }
