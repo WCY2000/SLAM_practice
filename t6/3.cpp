@@ -31,7 +31,7 @@ struct ReprojectionError3D
     	T yp = p[1] / p[2];
     	residuals[0] = xp - T(observed_u);
     	residuals[1] = yp - T(observed_v);
-        std::cout<<"delta u: "<< residuals[0]<<"\n";
+
     	return true;
 	}
 
@@ -150,6 +150,7 @@ int main(){
 		p2.push_back(ransac_keypoint2[i].pt);
 	}
 
+
 	std::vector<uchar> RansacStatus;
 	cv::Mat Fundamental = cv::findFundamentalMat(p1, p2, RansacStatus, cv::FM_RANSAC,0.05,0.99);
   
@@ -262,6 +263,21 @@ int main(){
     								position_3d[i]);
 
 		}
+for (int i = 0; i < rancsac_result2.size(); i++)
+		{
+
+			ceres::CostFunction* cost_function = ReprojectionError3D::Create(
+												(rancsac_result1[i].x - cx) / fx,
+												(rancsac_result1[i].y - cy) / fy);
+            
+            position_3d[i][0] = A.col(i)(0);
+            position_3d[i][1] = A.col(i)(1);
+            position_3d[i][2] = A.col(i)(2);
+
+    		problem.AddResidualBlock(cost_function, NULL, c_rotation[0], c_translation[0], 
+    								position_3d[i]);
+
+		}
 
 	ceres::Solver::Options options;
 	options.linear_solver_type = ceres::DENSE_SCHUR;
@@ -278,38 +294,83 @@ int main(){
     // Eigen::Vector3d t_optima(c_translation[0][0],c_translation[0][1],c_translation[0][2]) ;
     // Eigen::Quaterniond q_optima(c_rotation[0][0],c_rotation[0][1],c_rotation[0][2],c_rotation[0][3]);
     R_optima = q_optima.toRotationMatrix();
+    std::vector<Eigen::Vector3d> point_optima;
+
     
 
     std::cout<<"\n R after Ceres optimization \n"<<R_optima;
     std::cout<<"\n t after Ceres optimization \n"<<t_optima;
 
-    double residual[rancsac_result1.size()];
-    double sum = 0;
-    double mean = 0;
-    double mse = 0;
-    double rmse = 0;
-    std::vector<cv::Point2d> reprojectedPoints;
+    for (int i=0; i< rancsac_result2.size(); i++){
+        point_optima.emplace_back(Eigen::Vector3d(position_3d[i][0],position_3d[i][1],position_3d[i][2]));
+    }
+
+    double residual1[rancsac_result1.size()];
+    double residual2[rancsac_result1.size()];
+    double sum1 = 0;
+    double mean1 = 0;
+    double mse1 = 0;
+    double rmse1 = 0;
+    double sum2 = 0;
+    double mean2 = 0;
+    double mse2 = 0;
+    double rmse2 = 0;
+    std::vector<cv::Point2d> reprojectedPoints1;
+    std::vector<cv::Point2d> reprojectedPoints2;
     for (int i = 0; i< rancsac_result1.size(); i++){
 
-        Eigen::Vector3d p_new = R_optima* A.col(i)+ t_optima;
-        double residual_x = (rancsac_result2[i].x - cx) / fx - p_new(0)/p_new(2);
-        double residual_y = (rancsac_result2[i].y - cy) / fy - p_new(1)/p_new(2);
-        residual[i] = sqrt(residual_x*residual_x + residual_y*residual_y);
-        sum += residual[i];
-        reprojectedPoints.push_back(cv::Point2d (p_new(0)/p_new(2)*fx+cx, p_new(1)/p_new(2)*fy+cy));
+        Eigen::Vector3d p_new = R_optima * point_optima[i]+ t_optima;
+        double residual_x1 = (rancsac_result2[i].x - cx) / fx - point_optima[i](0)/point_optima[i](2);
+        double residual_y1 = (rancsac_result2[i].y - cy) / fy - point_optima[i](1)/point_optima[i](2);
+
+        double residual_x2 = (rancsac_result2[i].x - cx) / fx - p_new(0)/p_new(2);
+        double residual_y2 = (rancsac_result2[i].y - cy) / fy - p_new(1)/p_new(2);
+        residual1[i] = sqrt(residual_x1*residual_x1 + residual_y1*residual_y1);
+        residual2[i] = sqrt(residual_x2*residual_x2 + residual_y2*residual_y2);
+        sum1 += residual1[i];
+        sum2 += residual2[i];
+
+        reprojectedPoints1.push_back(cv::Point2d (point_optima[i](0)/point_optima[i](2)*fx+cx, point_optima[i](1)/point_optima[i](2)*fy+cy));
+        reprojectedPoints2.push_back(cv::Point2d (p_new(0)/p_new(2)*fx+cx, p_new(1)/p_new(2)*fy+cy));
 
     }
-    mean = sum / rancsac_result1.size();
-    std::cout<<"\n The mean of residual is: "<< mean<<std::endl;
+    mean1 = sum1 / rancsac_result1.size();
+    mean2 = sum2 / rancsac_result2.size();
+
+
+
     for (int i = 0; i<rancsac_result1.size(); i++){
-        mse += (residual[i] - mean)* (residual[i] - mean);
+        mse1 += (residual1[i] - mean1)* (residual1[i] - mean1);
+        mse2 += (residual2[i] - mean2)* (residual2[i] - mean2);
     }
 
-    mse /= rancsac_result1.size();
-    rmse = sqrt(mse);
-    std::cout<<"The mean square error of residual is: "<< mse <<std::endl;
-    std::cout<<"The root of  square error of residual is: "<< rmse <<std::endl;
+    mse1 /= rancsac_result1.size();
+    rmse1 = sqrt(mse1);
+    mse2 /= rancsac_result2.size();
+    rmse2 = sqrt(mse2);
+    std::cout<<"\n The mean of residual in image 1 is: "<< mean1 <<std::endl;
+    std::cout<<"The mean square error of residual in image 1 is: "<< mse1 <<std::endl;
+    std::cout<<"The root of  square error of residual in image 1 is: "<< rmse1 <<std::endl;
+
+    std::cout<<"\n The mean of residual in image 2 is: "<< mean2 <<std::endl;
+    std::cout<<"The mean square error of residual in image 2 is: "<< mse2 <<std::endl;
+    std::cout<<"The root of  square error of residual in image 2 is: "<< rmse2 <<std::endl;
 
 
+    cv::Mat outimg1 = cv::imread("/home/chenyu/Desktop/SLAM_practice/t5/undistort_1.png");
+	cv::Mat outimg2 = cv::imread("/home/chenyu/Desktop/SLAM_practice/t5/undistort_2.png");
+    
+    // cv::drawKeypoints(img_1, keypoints_1, outimg1, cv::Scalar::all(-1), cv::DrawMatchesFlags::DEFAULT);
+    for (int i=0; i< rancsac_result1.size(); i++){
+        cv::circle(outimg1, rancsac_result1[i], 1, cv::Scalar(255, 0, 120), -1);
+        cv::circle(outimg1, reprojectedPoints1[i], 1, cv::Scalar(0, 255, 120), -1);
+    }
+    cv::imwrite("/home/chenyu/Desktop/SLAM_practice/t6/reprojection1.jpg", outimg1);
+	// cv::drawKeypoints(img_2, keypoints_2, outimg2, cv::Scalar::all(-1), cv::DrawMatchesFlags::DEFAULT);
+        for (int i=0; i< rancsac_result1.size(); i++){
+        cv::circle(outimg2, rancsac_result2[i], 1, cv::Scalar(255, 0, 120), -1);
+        cv::circle(outimg2, reprojectedPoints2[i], 1, cv::Scalar(0, 255, 120), -1);
+    }
+	cv::imwrite("/home/chenyu/Desktop/SLAM_practice/t6/reprojection2.jpg", outimg2);
 
 }
