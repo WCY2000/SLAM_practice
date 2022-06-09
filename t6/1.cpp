@@ -238,10 +238,11 @@ int main(){
 	c_rotation[0][3] = 0;
     
    
-	ceres::LocalParameterization* local_parameterization = new ceres::QuaternionParameterization();
-    problem.AddParameterBlock(c_rotation[0], 4, local_parameterization);
+	ceres::LocalParameterization* local_parameterization1 = new ceres::QuaternionParameterization();
+    ceres::LocalParameterization* local_parameterization2 = new ceres::QuaternionParameterization();
+    problem.AddParameterBlock(c_rotation[0], 4, local_parameterization1);
 	problem.AddParameterBlock(c_translation[0], 3);
-    problem.AddParameterBlock(c_rotation[1], 4, local_parameterization);
+    problem.AddParameterBlock(c_rotation[1], 4, local_parameterization2);
 	problem.AddParameterBlock(c_translation[1], 3);
     problem.SetParameterBlockConstant(c_rotation[0]);
     problem.SetParameterBlockConstant(c_translation[0]);

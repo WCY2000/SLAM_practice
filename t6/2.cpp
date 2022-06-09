@@ -27,75 +27,57 @@ Eigen::Matrix3d skew_matrix(Eigen::Vector3d p1){
     return p1_skew;
 }
 
-struct AnalyticCostFunction: public ceres::SizedCostFunction<2, 7, 3>{
+struct AnalyticCostFunction: public ceres::SizedCostFunction<2, 4, 3, 3>{
 	AnalyticCostFunction(double observed_u, double observed_v)
 		:observed_u(observed_u), observed_v(observed_v)
 		{}
 
     virtual bool Evaluate(double const* const* parameters, double* residuals,double** jacobians) const{
-        double p[3];
-        double camera_R[4];
-        double camera_T[3];
-        double point_3d[3];
-
-        for (int i=0;i<4;i++){
-            camera_R[i] = parameters[0][i];
-        }
-        for (int i = 0; i<3;i++){
-            camera_T[i] = parameters[0][i+4];
-            point_3d [i] = parameters[1][i];
-        }
-
 		
-        Eigen::Map<const Eigen::Vector3d> trans(camera_T);
-        Eigen::Map<const Eigen::Vector3d> point(point_3d);
-        ceres::QuaternionRotatePoint(camera_R, point_3d, p);
+        Eigen::Vector3d trans(parameters[1][0],parameters[1][1],parameters[1][2]);
+        Eigen::Vector3d point_cam1(parameters[2][0],parameters[2][1],parameters[2][2]);
+        Eigen::Vector3d point_cam2;
         Eigen::Quaterniond quat;
-        quat.w() = camera_R[0];
-        quat.x() = camera_R[1];
-        quat.y() = camera_R[2];
-        quat.z() = camera_R[3];
+        quat.w() = parameters[0][0];
+        quat.x() = parameters[0][1];
+        quat.y() = parameters[0][2];
+        quat.z() = parameters[0][3];
+        point_cam2 = quat*point_cam1+ trans;
         
-		p[0] += camera_T[0]; p[1] += camera_T[1]; p[2] += camera_T[2];
-		double xp = p[0] / p[2];
-    	double yp = p[1] / p[2];
-    	residuals[0] = xp - double(observed_u);
-    	residuals[1] = yp - double(observed_v);
+		double xp = point_cam2(0) / point_cam2(2);
+    	double yp = point_cam2(1) / point_cam2(2);
+    	residuals[0] = (xp - double(observed_u))*fx;
+    	residuals[1] = (yp - double(observed_v))*fy;
 
-        std::cout<< "3d point x is: "<<p[0]<<" , y is: "<<p[1]<< " , z is: "<< p[2]<<std::endl;
+        std::cout<< "3d point x is: "<<point_cam2(0)<<" , y is: "<<point_cam2(1)<< " , z is: "<< point_cam2(2)<<std::endl;
         std::cout<< "observation "<<observed_u <<"  "<<observed_v<<std::endl;
 
-        double fx_by_z = fx / p[2];
-        double fy_by_z = fy / p[2];
+        double fx_by_z = fx / point_cam2(2);
+        double fy_by_z = fy / point_cam2(2);
 
         Eigen::Matrix<double, 2, 3, Eigen::RowMajor> J_cam;
-        double fx_by_zz = fx_by_z / p[2];
-        double fy_by_zz = fy_by_z / p[2];
+        double fx_by_zz = fx_by_z / point_cam2(2);
+        double fy_by_zz = fy_by_z / point_cam2(2);
 
-        J_cam << fx_by_z, 0, - fx_by_zz * p[0],
-                0, fy_by_z, - fy_by_zz * p[1];
-
+        J_cam << fx_by_z, 0, - fx_by_zz * point_cam2(0),
+                0, fy_by_z, - fy_by_zz * point_cam2(1);
     if(jacobians != NULL)
     {
         if(jacobians[0] != NULL)
         {
-            Eigen::Map<Eigen::Matrix<double, 2, 7, Eigen::RowMajor> > J_se3(jacobians[0]);
+            Eigen::Map<Eigen::Matrix<double, 2, 4, Eigen::RowMajor> > J_se3(jacobians[0]);
             J_se3.setZero();
 
-            J_se3.block<2,3>(0,1) = - J_cam * quat.toRotationMatrix() *skew_matrix( point) ;
-
-            // J_se3(0,4) = fx_by_zz*p[0]*p[1];
-            // J_se3(0,5) = -(fx_by_zz*p[0]*p[0]+ fx);
-            // J_se3(0,6) = -fx_by_z*p[1];
-            // J_se3(1,4) = fy_by_zz*p[1]*p[1]+ fy;
-            // J_se3(1,5) = -fy_by_zz*p[0]*p[1];
-            // J_se3(1,6) = fy_by_z*p[0];
-            // J_se3.block<2,3>(0,0) = - J_cam * skew(p);
-            J_se3.block<2,3>(0,3) = J_cam;
+            J_se3.block<2,3>(0,1) =  -J_cam * quat.toRotationMatrix() *skew_matrix( point_cam1 ) ;
         }
         if(jacobians[1] != NULL)
         {
             Eigen::Map<Eigen::Matrix<double, 2, 3, Eigen::RowMajor> > J_point(jacobians[1]);
+            J_point = J_cam ;
+        }
+        if(jacobians[2] != NULL)
+        {
+            Eigen::Map<Eigen::Matrix<double, 2, 3, Eigen::RowMajor> > J_point(jacobians[2]);
             J_point = J_cam * quat.toRotationMatrix();
         }
     }
@@ -106,6 +88,8 @@ struct AnalyticCostFunction: public ceres::SizedCostFunction<2, 7, 3>{
 	double observed_v;
     double fx = 356.1094055175781;
     double fy = 418.0326843261719;
+    double cx = 362.754261616093;
+    double cy = 250.1802333891737;
 };
 
 int main(){
@@ -209,48 +193,35 @@ int main(){
    
     ceres::Problem problem;
     Eigen::Quaterniond q(R);
-    double c_T[2][7];
+    double c_rotation[2][4];
+    double c_translation[2][3];
     double position_3d [rancsac_result1.size()][3];
-    c_T [1][0] = q.w();
-    c_T [1][1] = q.x();
-    c_T [1][2] = q.y(); 
-    c_T [1][3] = q.z(); 
-    c_T [1][4] = t(0);
-    c_T [1][5] = t(1);
-    c_T [1][6] = t(2);
+    c_translation[1][0] = t(0);
+	c_translation[1][1] = t(1);
+    c_translation[1][2] = t(2);
+	c_rotation[1][0] = q.w();
+	c_rotation[1][1] = q.x();
+	c_rotation[1][2] = q.y();
+	c_rotation[1][3] = q.z();
 
-    c_T [0][0] = 1;
-    c_T [0][1] = 0;
-    c_T [0][2] = 0; 
-    c_T [0][3] = 0; 
-    c_T [0][4] = 0;
-    c_T [0][5] = 0;
-    c_T [0][6] = 0;
+    c_translation[0][0] = 0;
+	c_translation[0][1] = 0;
+    c_translation[0][2] = 0;
+	c_rotation[0][0] = 1;
+	c_rotation[0][1] = 0;
+	c_rotation[0][2] = 0;
+	c_rotation[0][3] = 0;
 
-	ceres::LocalParameterization* local_parameterization = new ceres::QuaternionParameterization();
+	ceres::LocalParameterization* local_parameterization1 = new ceres::QuaternionParameterization();
+    ceres::LocalParameterization* local_parameterization2 = new ceres::QuaternionParameterization();
+    problem.AddParameterBlock(c_rotation[0], 4, local_parameterization1);
+	problem.AddParameterBlock(c_translation[0], 3);
+    problem.AddParameterBlock(c_rotation[1], 4, local_parameterization2);
+	problem.AddParameterBlock(c_translation[1], 3);
+    problem.SetParameterBlockConstant(c_rotation[0]);
+    problem.SetParameterBlockConstant(c_translation[0]);
 
-    problem.AddParameterBlock(c_T[0], 7);
-    problem.AddParameterBlock(c_T[1], 7);
-
-    problem.SetParameterBlockConstant(c_T[0]);
-
-
-		for (int i = 0; i < 10; i++)
-		{
-
-			auto cost_function = new AnalyticCostFunction(
-												(rancsac_result2[i].x - cx) / fx,
-												(rancsac_result2[i].y - cy) / fy);
-            position_3d[i][0] = A.col(i)(0);
-            position_3d[i][1] = A.col(i)(1);
-            position_3d[i][2] = A.col(i)(2);
-
-    		problem.AddResidualBlock(cost_function, NULL, c_T[1], 
-    								position_3d[i]);
-
-		}
-
-        for (int i = 0; i < 10; i++)
+		for (int i = 0; i < rancsac_result1.size(); i++)
 		{
 
 			auto cost_function = new AnalyticCostFunction(
@@ -260,10 +231,26 @@ int main(){
             position_3d[i][1] = A.col(i)(1);
             position_3d[i][2] = A.col(i)(2);
 
-    		problem.AddResidualBlock(cost_function, NULL, c_T[0], 
+    		problem.AddResidualBlock(cost_function, NULL, c_rotation[0],c_translation[0], 
     								position_3d[i]);
 
 		}
+
+        for (int i = 0; i < rancsac_result1.size(); i++)
+		{
+
+			auto cost_function = new AnalyticCostFunction(
+												(rancsac_result2[i].x - cx) / fx,
+												(rancsac_result2[i].y - cy) / fy);
+            position_3d[i][0] = A.col(i)(0);
+            position_3d[i][1] = A.col(i)(1);
+            position_3d[i][2] = A.col(i)(2);
+
+    		problem.AddResidualBlock(cost_function, NULL, c_rotation[1],c_translation[1], 
+    								position_3d[i]);
+
+		}
+
 
 	ceres::Solver::Options options;
 	options.linear_solver_type = ceres::DENSE_SCHUR;
@@ -275,21 +262,88 @@ int main(){
 	std::cout << summary.BriefReport() << "\n";
     
     Eigen::Matrix3d R_optima ;
-    // Eigen::Vector3d t_optima(c_T[1][4],c_T[1][5],c_T[1][6]) ;
-    // Eigen::Quaterniond q_optima(c_T[1][0],c_T[1][1],c_T[1][2],c_T[1][3]);
-    // Eigen::Vector3d t_optima(c_T[0][3],c_T[0][4],c_T[0][5]) ;
-    // Eigen::Quaterniond q_optima(c_T[0][0],c_T[0][1],c_T[0][2]);
-    Eigen::Vector3d t_optima(c_T[1][4],c_T[1][5],c_T[1][6]) ;
-    Eigen::Quaterniond q_optima(c_T[1][0],c_T[1][1],c_T[1][2], c_T[1][3]);
-
-
+    Eigen::Vector3d t_optima(c_translation[1][0],c_translation[1][1],c_translation[1][2]) ;
+    Eigen::Quaterniond q_optima(c_rotation[1][0],c_rotation[1][1],c_rotation[1][2],c_rotation[1][3]);
+    // Eigen::Vector3d t_optima(c_translation[0][0],c_translation[0][1],c_translation[0][2]) ;
+    // Eigen::Quaterniond q_optima(c_rotation[0][0],c_rotation[0][1],c_rotation[0][2],c_rotation[0][3]);
     R_optima = q_optima.toRotationMatrix();
-    
+    std::vector<Eigen::Vector3d> point_optima;
 
     std::cout<<"\n R after Ceres optimization \n"<<R_optima;
     std::cout<<"\n t after Ceres optimization \n"<<t_optima;
 
+    for (int i=0; i< rancsac_result2.size(); i++){
+        point_optima.emplace_back(Eigen::Vector3d(position_3d[i][0],position_3d[i][1],position_3d[i][2]));
+    }
+
+    double residual1[rancsac_result1.size()];
+    double residual2[rancsac_result1.size()];
+    double sum1 = 0;
+    double mean1 = 0;
+    double mse1 = 0;
+    double rmse1 = 0;
+    double sum2 = 0;
+    double mean2 = 0;
+    double mse2 = 0;
+    double rmse2 = 0;
+    std::vector<cv::Point2d> reprojectedPoints1;
+    std::vector<cv::Point2d> reprojectedPoints2;
+    for (int i = 0; i< rancsac_result1.size(); i++){
+
+        Eigen::Vector3d p_new = R_optima * point_optima[i]+ t_optima;
+        double residual_x1 = (rancsac_result1[i].x - cx) / fx - point_optima[i](0)/point_optima[i](2);
+        double residual_y1 = (rancsac_result1[i].y - cy) / fy - point_optima[i](1)/point_optima[i](2);
+        // std::cout<<"residual 1: "<< (rancsac_result1[i].x - cx) / fx <<" - "<< point_optima[i](0)/point_optima[i](2)<<std::endl;
+        double residual_x2 = (rancsac_result2[i].x - cx) / fx - p_new(0)/p_new(2);
+        double residual_y2 = (rancsac_result2[i].y - cy) / fy - p_new(1)/p_new(2);
+        residual1[i] = sqrt(residual_x1*residual_x1 + residual_y1*residual_y1);
+        residual2[i] = sqrt(residual_x2*residual_x2 + residual_y2*residual_y2);
+        sum1 += residual1[i];
+        sum2 += residual2[i];
+
+        reprojectedPoints1.push_back(cv::Point2d (point_optima[i](0)/point_optima[i](2)*fx+cx, point_optima[i](1)/point_optima[i](2)*fy+cy));
+        reprojectedPoints2.push_back(cv::Point2d (p_new(0)/p_new(2)*fx+cx, p_new(1)/p_new(2)*fy+cy));
+
+    }
+    mean1 = sum1 / rancsac_result1.size();
+    mean2 = sum2 / rancsac_result2.size();
+
+
+
+    for (int i = 0; i<rancsac_result1.size(); i++){
+        mse1 += (residual1[i] - mean1)* (residual1[i] - mean1);
+        mse2 += (residual2[i] - mean2)* (residual2[i] - mean2);
+    }
+
+    mse1 /= rancsac_result1.size();
+    rmse1 = sqrt(mse1);
+    mse2 /= rancsac_result2.size();
+    rmse2 = sqrt(mse2);
+    std::cout<<"\nThe mean of residual in image 1 is: "<< mean1 <<std::endl;
+    std::cout<<"The mean square error of residual in image 1 is: "<< mse1 <<std::endl;
+    std::cout<<"The root of  square error of residual in image 1 is: "<< rmse1 <<std::endl;
+
+    std::cout<<"\nThe mean of residual in image 2 is: "<< mean2 <<std::endl;
+    std::cout<<"The mean square error of residual in image 2 is: "<< mse2 <<std::endl;
+    std::cout<<"The root of  square error of residual in image 2 is: "<< rmse2 <<std::endl;
+
+
+    cv::Mat outimg1 = cv::imread("/home/chenyu/Desktop/SLAM_practice/t5/undistort_1.png");
+	cv::Mat outimg2 = cv::imread("/home/chenyu/Desktop/SLAM_practice/t5/undistort_2.png");
     
+    // cv::drawKeypoints(img_1, keypoints_1, outimg1, cv::Scalar::all(-1), cv::DrawMatchesFlags::DEFAULT);
+    for (int i=0; i< rancsac_result1.size(); i++){
+        cv::circle(outimg1, rancsac_result1[i], 1, cv::Scalar(255, 0, 120), -1);
+        cv::circle(outimg1, reprojectedPoints1[i], 1, cv::Scalar(0, 255, 120), -1);
+    }
+    cv::imwrite("/home/chenyu/Desktop/SLAM_practice/t6/reprojection1_analysis.jpg", outimg1);
+	// cv::drawKeypoints(img_2, keypoints_2, outimg2, cv::Scalar::all(-1), cv::DrawMatchesFlags::DEFAULT);
+        for (int i=0; i< rancsac_result1.size(); i++){
+        cv::circle(outimg2, rancsac_result2[i], 1, cv::Scalar(255, 0, 120), -1);
+        cv::circle(outimg2, reprojectedPoints2[i], 1, cv::Scalar(0, 255, 120), -1);
+    }
+	cv::imwrite("/home/chenyu/Desktop/SLAM_practice/t6/reprojection2_analysis.jpg", outimg2);
+
 
 
 

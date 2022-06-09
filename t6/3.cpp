@@ -239,10 +239,12 @@ int main(){
 	c_rotation[0][3] = 0;
     
    
-	ceres::LocalParameterization* local_parameterization = new ceres::QuaternionParameterization();
-    problem.AddParameterBlock(c_rotation[0], 4, local_parameterization);
+	ceres::LocalParameterization* local_parameterization1 = new ceres::QuaternionParameterization();
+    ceres::LocalParameterization* local_parameterization2 = new ceres::QuaternionParameterization();
+
+    problem.AddParameterBlock(c_rotation[0], 4, local_parameterization1);
 	problem.AddParameterBlock(c_translation[0], 3);
-    problem.AddParameterBlock(c_rotation[1], 4, local_parameterization);
+    problem.AddParameterBlock(c_rotation[1], 4, local_parameterization2);
 	problem.AddParameterBlock(c_translation[1], 3);
     problem.SetParameterBlockConstant(c_rotation[0]);
     problem.SetParameterBlockConstant(c_translation[0]);
@@ -296,8 +298,6 @@ for (int i = 0; i < rancsac_result2.size(); i++)
     R_optima = q_optima.toRotationMatrix();
     std::vector<Eigen::Vector3d> point_optima;
 
-    
-
     std::cout<<"\n R after Ceres optimization \n"<<R_optima;
     std::cout<<"\n t after Ceres optimization \n"<<t_optima;
 
@@ -320,8 +320,8 @@ for (int i = 0; i < rancsac_result2.size(); i++)
     for (int i = 0; i< rancsac_result1.size(); i++){
 
         Eigen::Vector3d p_new = R_optima * point_optima[i]+ t_optima;
-        double residual_x1 = (rancsac_result2[i].x - cx) / fx - point_optima[i](0)/point_optima[i](2);
-        double residual_y1 = (rancsac_result2[i].y - cy) / fy - point_optima[i](1)/point_optima[i](2);
+        double residual_x1 = (rancsac_result1[i].x - cx) / fx - point_optima[i](0)/point_optima[i](2);
+        double residual_y1 = (rancsac_result1[i].y - cy) / fy - point_optima[i](1)/point_optima[i](2);
 
         double residual_x2 = (rancsac_result2[i].x - cx) / fx - p_new(0)/p_new(2);
         double residual_y2 = (rancsac_result2[i].y - cy) / fy - p_new(1)/p_new(2);
@@ -348,11 +348,11 @@ for (int i = 0; i < rancsac_result2.size(); i++)
     rmse1 = sqrt(mse1);
     mse2 /= rancsac_result2.size();
     rmse2 = sqrt(mse2);
-    std::cout<<"\n The mean of residual in image 1 is: "<< mean1 <<std::endl;
+    std::cout<<"\nThe mean of residual in image 1 is: "<< mean1 <<std::endl;
     std::cout<<"The mean square error of residual in image 1 is: "<< mse1 <<std::endl;
     std::cout<<"The root of  square error of residual in image 1 is: "<< rmse1 <<std::endl;
 
-    std::cout<<"\n The mean of residual in image 2 is: "<< mean2 <<std::endl;
+    std::cout<<"\nThe mean of residual in image 2 is: "<< mean2 <<std::endl;
     std::cout<<"The mean square error of residual in image 2 is: "<< mse2 <<std::endl;
     std::cout<<"The root of  square error of residual in image 2 is: "<< rmse2 <<std::endl;
 
