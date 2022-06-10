@@ -49,8 +49,8 @@ struct AnalyticCostFunction: public ceres::SizedCostFunction<2, 4, 3, 3>{
     	residuals[0] = (xp - double(observed_u))*fx;
     	residuals[1] = (yp - double(observed_v))*fy;
 
-        std::cout<< "3d point x is: "<<point_cam2(0)<<" , y is: "<<point_cam2(1)<< " , z is: "<< point_cam2(2)<<std::endl;
-        std::cout<< "observation "<<observed_u <<"  "<<observed_v<<std::endl;
+        // std::cout<< "3d point x is: "<<point_cam2(0)<<" , y is: "<<point_cam2(1)<< " , z is: "<< point_cam2(2)<<std::endl;
+        // std::cout<< "observation "<<observed_u <<"  "<<observed_v<<std::endl;
 
         double fx_by_z = fx / point_cam2(2);
         double fy_by_z = fy / point_cam2(2);
@@ -68,7 +68,7 @@ struct AnalyticCostFunction: public ceres::SizedCostFunction<2, 4, 3, 3>{
             Eigen::Map<Eigen::Matrix<double, 2, 4, Eigen::RowMajor> > J_se3(jacobians[0]);
             J_se3.setZero();
 
-            J_se3.block<2,3>(0,1) =  -J_cam * quat.toRotationMatrix() *skew_matrix( point_cam1 ) ;
+            J_se3.block<2,3>(0,1) =  -J_cam  * skew_matrix( point_cam1 ) ;
         }
         if(jacobians[1] != NULL)
         {
@@ -219,11 +219,10 @@ int main(){
     problem.AddParameterBlock(c_rotation[1], 4, local_parameterization2);
 	problem.AddParameterBlock(c_translation[1], 3);
     problem.SetParameterBlockConstant(c_rotation[0]);
-    problem.SetParameterBlockConstant(c_translation[0]);
+    problem.SetParameterBlockConstant(c_translation[0]);    
 
 		for (int i = 0; i < rancsac_result1.size(); i++)
 		{
-
 			auto cost_function = new AnalyticCostFunction(
 												(rancsac_result1[i].x - cx) / fx,
 												(rancsac_result1[i].y - cy) / fy);
@@ -233,8 +232,8 @@ int main(){
 
     		problem.AddResidualBlock(cost_function, NULL, c_rotation[0],c_translation[0], 
     								position_3d[i]);
+        }
 
-		}
 
         for (int i = 0; i < rancsac_result1.size(); i++)
 		{
@@ -248,18 +247,20 @@ int main(){
 
     		problem.AddResidualBlock(cost_function, NULL, c_rotation[1],c_translation[1], 
     								position_3d[i]);
-
 		}
-
 
 	ceres::Solver::Options options;
 	options.linear_solver_type = ceres::DENSE_SCHUR;
+    options.check_gradients = true;
+    options.gradient_check_relative_precision = 2;
+
 	options.minimizer_progress_to_stdout = true;
-    options.max_num_iterations = 50;
+    options.max_num_iterations = 3000;
 	options.max_solver_time_in_seconds = 10;
 	ceres::Solver::Summary summary;
 	ceres::Solve(options, &problem, &summary);
 	std::cout << summary.BriefReport() << "\n";
+    
     
     Eigen::Matrix3d R_optima ;
     Eigen::Vector3d t_optima(c_translation[1][0],c_translation[1][1],c_translation[1][2]) ;
